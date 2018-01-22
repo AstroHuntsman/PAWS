@@ -1,7 +1,10 @@
 import tornado.escape
 import tornado.web
 
-import glob
+from astropy import units as u
+from astropy.time import Time
+
+from pocs.utils import current_time
 
 
 class BaseHandler(tornado.web.RequestHandler):
@@ -41,23 +44,26 @@ class MainHandler(BaseHandler):
         self.render("main.hbs", user_data=user_data, db=self.db)
 
 
-class ImagesHandler(BaseHandler):
+class ObservationsHistoryHandler(BaseHandler):
 
-    def get(self, sequence=None):
+    def get(self, days=None):
 
-        if sequence > '':
+        if days is None:
+            days = 1
 
-            img_dir = '/var/panoptes/images/fields'
+        date = (current_time() - days * u.day).datetime
 
-            # target_list = glob.glob("{}/*".format(img_dir))
-            # visit_list = glob.glob("{}/**/*".format(img_dir))
-            img_list = glob.glob("{}/{}/*.jpg".format(img_dir, sequence))
+        observations = self.db.observations.aggregate([
+            {"$match": {"date": {"$gte": date}}},
+            {'$group':
+                {
+                    "_id": "$data.field_name",
+                    "count": {"$sum": 1},
+                    "exp_time": {"$sum": "$data.exp_time"},
+                    "date": {"$max": "$date"}
+                }
+             },
+            {'$sort': {'date': 1}}
+        ])
 
-            images = [img.replace('/var/panoptes/images/fields/', '') for img in img_list]
-
-            images.sort()
-            images.reverse()
-
-            self.render("images.hbs", images=images)
-        else:
-            self.render("no_images.hbs")
+        self.render('observation_list.hbs', observation_list=observations)
